@@ -1,0 +1,118 @@
+import numpy as np 
+import pandas as pd 
+import seaborn as sns 
+sns.set_style('whitegrid') 
+import matplotlib.pyplot as plt 
+from sklearn.model_selection import train_test_split 
+from sklearn.preprocessing import LabelEncoder 
+from sklearn.metrics import accuracy_score, classification_report 
+from sklearn.tree import DecisionTreeClassifier 
+from catboost import CatBoostClassifier, Pool, metrics, cv 
+from xgboost import XGBClassifier 
+from lightgbm import LGBMClassifier 
+import warnings 
+warnings.filterwarnings('ignore') 
+
+# Load dataset
+data = pd.read_csv("/content/LoanStats3a.csv") 
+data.shape 
+pd.set_option('display.max_columns', None) 
+data.head(5) 
+data.shape 
+data.info() 
+data.isnull().sum() 
+pct = (data.isnull().sum().sum())/(data.shape[0]*data.shape[1]) 
+print("Overall missing values in the data ≈ {:.2f} %".format(pct*100)) 
+
+# Visualize null values
+plt.figure(figsize=(16,14)) 
+sns.heatmap(data.isnull()) 
+plt.title('Null values heat plot', fontdict={'fontsize': 20}) 
+plt.legend(data.isnull()) 
+plt.show() 
+
+# Analyze null values
+temp_df = pd.DataFrame() 
+temp_df['Percentage of null values'] = ['10% or less', '10% to 20%', '20% to 30%', '30% to 40%', '40% to 50%', 
+'50% to 60%', '60% to 70%', '70% to 80%', '80% to 90%', 'More than 90%'] 
+
+# Calculate percentage of null values
+null_percentages = (data.isnull().sum() / len(data)) 
+
+# Store the columns count separately for each range
+ten_percent = len(null_percentages[null_percentages <= 0.1]) 
+ten_to_twenty_percent = len(null_percentages[(null_percentages <= 0.2) & (null_percentages > 0.1)]) 
+twenty_to_thirty_percent = len(null_percentages[(null_percentages <= 0.3) & (null_percentages > 0.2)]) 
+thirty_to_forty_percent = len(null_percentages[(null_percentages <= 0.4) & (null_percentages > 0.3)]) 
+forty_to_fifty_percent = len(null_percentages[(null_percentages <= 0.5) & (null_percentages > 0.4)]) 
+fifty_to_sixty_percent = len(null_percentages[(null_percentages <= 0.6) & (null_percentages > 0.5)]) 
+sixty_to_seventy_percent = len(null_percentages[(null_percentages <= 0.7) & (null_percentages > 0.6)]) 
+seventy_to_eighty_percent = len(null_percentages[(null_percentages <= 0.8) & (null_percentages > 0.7)]) 
+eighty_to_ninety_percent = len(null_percentages[(null_percentages <= 0.9) & (null_percentages > 0.8)]) 
+hundred_percent = len(null_percentages[null_percentages > 0.9])  
+
+# Filtering columns with less than 40% null values
+f1 = data[data.columns[((data.isnull().sum())/len(data)) < 0.4]] 
+df1.shape 
+
+# Dropping constant columns
+const_cols = [] 
+for i in df1.columns: 
+    if df1[i].nunique() == 1: 
+        const_cols.append(i) 
+df1.drop(const_cols, axis=1, inplace=True) 
+
+# Handling date columns
+dt_cols = ['issue_d', 'earliest_cr_line', 'last_pymnt_d', 'last_credit_pull_d'] 
+for i in dt_cols: 
+    df1[i] = pd.to_datetime(df1[i].astype('str'), format='%b-%y', yearfirst=False) 
+df1['earliest_cr_line'] = pd.DatetimeIndex(df1['earliest_cr_line']).year 
+
+# Feature extraction
+df1['issue_d_year'] = pd.DatetimeIndex(df1['issue_d']).year 
+df1['issue_d_month'] = pd.DatetimeIndex(df1['issue_d']).month 
+df1['last_pymnt_d_year'] = pd.DatetimeIndex(df1['last_pymnt_d']).year 
+df1['last_pymnt_d_month'] = pd.DatetimeIndex(df1['last_pymnt_d']).month 
+df1['last_credit_pull_d_year'] = pd.DatetimeIndex(df1['last_credit_pull_d']).year 
+df1['last_credit_pull_d_month'] = pd.DatetimeIndex(df1['last_credit_pull_d']).month 
+
+# Adjusting years
+df1.earliest_cr_line = 2019 - (df1.earliest_cr_line) 
+df1.issue_d_year = 2019 - (df1.issue_d_year) 
+df1.last_pymnt_d_year = 2019 - (df1.last_pymnt_d_year) 
+df1.last_credit_pull_d_year = 2019 - (df1.last_credit_pull_d_year) 
+
+# Dropping redundant features
+df1.drop(['issue_d', 'last_pymnt_d', 'last_credit_pull_d'], axis=1, inplace=True) 
+
+# Impute and clean
+df1.fillna(df1.median(), inplace=True) 
+df1.revol_util.fillna('50%', inplace=True) 
+df1.revol_util = df1.revol_util.str[:-1].astype('float') 
+
+# Encoding categorical variables
+df2 = pd.get_dummies(df1, columns=['home_ownership', 'verification_status', 'purpose', 'addr_state', 'debt_settlement_flag'], drop_first=True) 
+
+# Label encoding
+le = LabelEncoder() 
+df2.grade = le.fit_transform(df2.grade) 
+df2.sub_grade = le.fit_transform(df2.sub_grade) 
+
+# Splitting data
+X = df2.drop("loan_status", axis=1) 
+y = LabelEncoder().fit_transform(df2['loan_status']) 
+x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.20, stratify=y, random_state=2) 
+
+# Model training and evaluation
+models = {
+    "DecisionTree": DecisionTreeClassifier(max_depth=3, class_weight='balanced', min_samples_leaf=5),
+    "CatBoost": CatBoostClassifier(iterations=5, learning_rate=0.1, verbose=False),
+    "XGBoost": XGBClassifier(learning_rate=0.1, eval_set=[(x_train, y_train), (x_test, y_test)], verbose=False),
+    "LightGBM": LGBMClassifier(learning_rate=0.1)
+}
+
+for name, model in models.items():
+    model.fit(x_train, y_train)
+    predictions = model.predict(x_test)
+    print(f'{name} Accuracy: {accuracy_score(y_test, predictions)}')
+    print(f'{name} Report:\n{classification_report(y_test, predictions)}')
