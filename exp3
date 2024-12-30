@@ -1,0 +1,109 @@
+# Install dtreeviz library
+!pip -qq install dtreeviz
+
+import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
+from sklearn import datasets, tree
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+import graphviz
+import dtreeviz
+
+# Load iris dataset and define variables
+iris = datasets.load_iris()
+X = iris.data[:, 2:]  # Sepal length and width
+y = iris.target
+
+# Decision Tree Classifier with max_depth = 2
+clf = DecisionTreeClassifier(max_depth=2, random_state=1234)
+model = clf.fit(X, y)
+text_representation = tree.export_text(clf)
+print(text_representation)
+
+# Save the representation to a log file
+with open("decision_tree.log", "w") as f_out:
+    f_out.write(text_representation)
+
+# Prediction examples
+print(clf.predict_proba([[5, 1.5]]))
+print(clf.predict([[5, 1.5]]))
+
+# Additional classifiers
+tree_clf = DecisionTreeClassifier(random_state=42)
+tree_clf.fit(X, y)
+tree_clf2 = DecisionTreeClassifier(max_depth=2, random_state=2)
+tree_clf2.fit(X, y)
+
+# Plotting decision boundaries
+def plot_decision_boundary(clf, X, y, axes=[0, 7.5, 0, 3], iris=True, legend=False, plot_training=True):
+    x1s = np.linspace(axes[0], axes[1], 100)
+    x2s = np.linspace(axes[2], axes[3], 100)
+    x1, x2 = np.meshgrid(x1s, x2s)
+    X_new = np.c_[x1.ravel(), x2.ravel()]
+    y_pred = clf.predict(X_new).reshape(x1.shape)
+    custom_cmap = ListedColormap(['#fafab0', '#9898ff', '#a0faa0'])
+    plt.contourf(x1, x2, y_pred, alpha=0.3, cmap=custom_cmap)
+    if plot_training:
+        plt.plot(X[:, 0][y == 0], X[:, 1][y == 0], "yo", label="Iris setosa")
+        plt.plot(X[:, 0][y == 1], X[:, 1][y == 1], "bs", label="Iris versicolor")
+        plt.plot(X[:, 0][y == 2], X[:, 1][y == 2], "g^", label="Iris virginica")
+        plt.axis(axes)
+    if iris:
+        plt.xlabel("Sepal length", fontsize=14)
+        plt.ylabel("Sepal width", fontsize=14)
+    if legend:
+        plt.legend(loc="lower right", fontsize=14)
+
+plt.figure(figsize=(8, 4))
+plot_decision_boundary(tree_clf, X, y)
+plt.title("No restrictions", fontsize=16)
+plt.show()
+
+plt.figure(figsize=(8, 4))
+plot_decision_boundary(tree_clf2, X, y)
+plt.title("Regularizing Hyperparameters", fontsize=16)
+plt.show()
+
+# California Housing dataset
+from sklearn.datasets import fetch_california_housing
+housing = fetch_california_housing()
+X = housing.data
+y = housing.target
+
+# Decision Tree Regressor
+dt = DecisionTreeRegressor(max_depth=3, random_state=1234)
+model = dt.fit(X, y)
+text_representation = tree.export_text(dt)
+print(text_representation)
+
+# Visualize tree using plot_tree
+plt.figure(figsize=(15, 10))
+_ = tree.plot_tree(dt, feature_names=housing.feature_names, filled=True)
+plt.show()
+
+# Visualize regression predictions
+def plot_regression_predictions(tree_reg, X, y, axes=[0.3, 1, 0, 60], ylabel="$y$"):
+    x1 = np.linspace(axes[0], axes[1], 500).reshape(-1, 1)
+    y_pred = tree_reg.predict(x1)
+    plt.axis(axes)
+    plt.xlabel("$x_1$", fontsize=18)
+    if ylabel:
+        plt.ylabel(ylabel, fontsize=18, rotation=0)
+    plt.plot(X, y, "b.")
+    plt.plot(x1, y_pred, "r.-", linewidth=2, label=r"$\hat{y}$")
+
+X = housing.data[:, 4:5]
+y = housing.target
+
+dt2 = DecisionTreeRegressor(max_depth=8, random_state=1234)
+dt2.fit(X, y)
+
+fig, axes = plt.subplots(ncols=2, figsize=(10, 4), sharey=True)
+plt.sca(axes[0])
+plot_regression_predictions(dt2, X, y)
+plt.title("max_depth=8", fontsize=14)
+
+plt.sca(axes[1])
+plot_regression_predictions(dt, X, y, ylabel=None)
+plt.title("max_depth=No restriction", fontsize=14)
+plt.show()
