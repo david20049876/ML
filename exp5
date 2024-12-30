@@ -7,101 +7,110 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.tree import DecisionTreeClassifier
-from catboost import CatBoostClassifier, Pool, metrics, cv
+from catboost import CatBoostClassifier
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier, log_evaluation
 import warnings
+
+# Suppress warnings
 warnings.filterwarnings('ignore')
 
 # Load dataset
 data = pd.read_csv("/content/LoanStats3a.csv")
-data.shape
-pd.set_option('display.max_columns', None)
-data.head(5)
-data.info()
+print(data.shape)
 
-# Missing values analysis
-data.isnull().sum()
-pct = (data.isnull().sum().sum()) / (data.shape[0] * data.shape[1])
-print("Overall missing values in the data ≈ {:.2f} %".format(pct * 100))
+pd.set_option('display.max_columns', None)
+print(data.head(5))
+print(data.shape)
+print(data.info())
+
+# Missing values heatmap
 plt.figure(figsize=(16, 14))
-sns.heatmap(data.isnull())
-plt.title('Null values heat plot', fontdict={'fontsize': 20})
+sns.heatmap(data.isnull(), cbar=False)
+plt.title('Null values heatmap', fontdict={'fontsize': 20})
 plt.show()
 
-# Analyze null value percentage ranges
-null_percentages = (data.isnull().sum() / len(data))
-ten_percent = len(null_percentages[null_percentages <= 0.1])
-ten_to_twenty_percent = len(null_percentages[(null_percentages <= 0.2) & (null_percentages > 0.1)])
-twenty_to_thirty_percent = len(null_percentages[(null_percentages <= 0.3) & (null_percentages > 0.2)])
-thirty_to_forty_percent = len(null_percentages[(null_percentages <= 0.4) & (null_percentages > 0.3)])
-forty_to_fifty_percent = len(null_percentages[(null_percentages <= 0.5) & (null_percentages > 0.4)])
-fifty_to_sixty_percent = len(null_percentages[(null_percentages <= 0.6) & (null_percentages > 0.5)])
-sixty_to_seventy_percent = len(null_percentages[(null_percentages <= 0.7) & (null_percentages > 0.6)])
-seventy_to_eighty_percent = len(null_percentages[(null_percentages <= 0.8) & (null_percentages > 0.7)])
-eighty_to_ninety_percent = len(null_percentages[(null_percentages <= 0.9) & (null_percentages > 0.8)])
-hundred_percent = len(null_percentages[null_percentages > 0.9])
-
-# Filter columns with <40% null values
-df1 = data[data.columns[((data.isnull().sum()) / len(data)) < 0.4]]
+# Handling missing values (Dropping columns with >40% missing values)
+f1 = data[data.columns[((data.isnull().sum()) / len(data)) < 0.4]]
 
 # Drop constant columns
-const_cols = [i for i in df1.columns if df1[i].nunique() == 1]
-print("Shape before:", df1.shape)
-df1.drop(const_cols, axis=1, inplace=True)
-print("Shape after:", df1.shape)
+const_cols = [col for col in f1.columns if f1[col].nunique() == 1]
+f1.drop(columns=const_cols, inplace=True)
 
-# Date columns processing
+# Convert specific columns to datetime
 dt_cols = ['issue_d', 'earliest_cr_line', 'last_pymnt_d', 'last_credit_pull_d']
-for i in dt_cols:
-    df1[i] = pd.to_datetime(df1[i].astype('str'), format='%b-%y', yearfirst=False)
+for col in dt_cols:
+    f1[col] = pd.to_datetime(f1[col], format='%b-%y')
 
-df1['earliest_cr_line'] = pd.DatetimeIndex(df1['earliest_cr_line']).year
-df1['issue_d_year'] = pd.DatetimeIndex(df1['issue_d']).year
-df1['issue_d_month'] = pd.DatetimeIndex(df1['issue_d']).month
-df1['last_pymnt_d_year'] = pd.DatetimeIndex(df1['last_pymnt_d']).year
-df1['last_pymnt_d_month'] = pd.DatetimeIndex(df1['last_pymnt_d']).month
-df1['last_credit_pull_d_year'] = pd.DatetimeIndex(df1['last_credit_pull_d']).year
-df1['last_credit_pull_d_month'] = pd.DatetimeIndex(df1['last_credit_pull_d']).month
+# Extract year and month features from datetime columns
+f1['earliest_cr_line'] = 2019 - f1['earliest_cr_line'].dt.year
+f1['issue_d_year'] = 2019 - f1['issue_d'].dt.year
+f1['issue_d_month'] = f1['issue_d'].dt.month
+f1['last_pymnt_d_year'] = 2019 - f1['last_pymnt_d'].dt.year
+f1['last_pymnt_d_month'] = f1['last_pymnt_d'].dt.month
+f1['last_credit_pull_d_year'] = 2019 - f1['last_credit_pull_d'].dt.year
+f1['last_credit_pull_d_month'] = f1['last_credit_pull_d'].dt.month
 
-# Feature extraction and cleanup
-df1['earliest_cr_line'] = 2019 - df1['earliest_cr_line']
-df1['issue_d_year'] = 2019 - df1['issue_d_year']
-df1['last_pymnt_d_year'] = 2019 - df1['last_pymnt_d_year']
-df1['last_credit_pull_d_year'] = 2019 - df1['last_credit_pull_d_year']
-df1.drop(['issue_d', 'last_pymnt_d', 'last_credit_pull_d'], axis=1, inplace=True)
+# Drop original datetime columns
+f1.drop(columns=['issue_d', 'last_pymnt_d', 'last_credit_pull_d'], inplace=True)
 
-# Handle missing values
-df1['last_pymnt_d_year'].fillna(df1['last_pymnt_d_year'].median(), inplace=True)
-df1['last_pymnt_d_month'].fillna(df1['last_pymnt_d_month'].median(), inplace=True)
-df1['last_credit_pull_d_year'].fillna(df1['last_credit_pull_d_year'].median(), inplace=True)
-df1['last_credit_pull_d_month'].fillna(df1['last_credit_pull_d_month'].median(), inplace=True)
-df1['tax_liens'].fillna(df1['tax_liens'].median(), inplace=True)
-df1['revol_util'].fillna('50%', inplace=True)
-df1['revol_util'] = df1['revol_util'].str.rstrip('%').astype('float')
+# Handle missing values in numerical columns
+f1['last_pymnt_d_year'].fillna(f1['last_pymnt_d_year'].median(), inplace=True)
+f1['last_pymnt_d_month'].fillna(f1['last_pymnt_d_month'].median(), inplace=True)
+f1['last_credit_pull_d_year'].fillna(f1['last_credit_pull_d_year'].median(), inplace=True)
+f1['last_credit_pull_d_month'].fillna(f1['last_credit_pull_d_month'].median(), inplace=True)
+f1['tax_liens'].fillna(f1['tax_liens'].median(), inplace=True)
 
-# Encoding categorical features
-df2 = pd.get_dummies(df1, columns=['home_ownership', 'verification_status', 'purpose', 'addr_state', 'debt_settlement_flag'], drop_first=True)
+# Handle 'revol_util' column
+f1['revol_util'].fillna('50%', inplace=True)
+f1['revol_util'] = f1['revol_util'].str.rstrip('%').astype('float')
+
+# Handle 'emp_length' column
+f1['emp_length'].fillna('5000', inplace=True)
+f1['emp_length'].replace({'10+ years': '10', '< 1 year': '0'}, inplace=True)
+f1['emp_length'] = f1['emp_length'].str.extract('(\d+)').astype('float')
+
+# Drop unwanted columns
+f1.drop(columns=['desc', 'emp_title', 'title'], inplace=True)
+
+# Label encoding for categorical columns
 le = LabelEncoder()
-df2['grade'] = le.fit_transform(df2['grade'])
-df2['sub_grade'] = le.fit_transform(df2['sub_grade'])
+f1['grade'] = le.fit_transform(f1['grade'])
+f1['sub_grade'] = le.fit_transform(f1['sub_grade'])
 
-# Splitting data
-X = df2.drop('loan_status', axis=1)
-y = LabelEncoder().fit_transform(df2['loan_status'])
+# One-hot encoding for specific columns
+f1 = pd.get_dummies(f1, columns=['home_ownership', 'verification_status', 'purpose', 'addr_state', 'debt_settlement_flag'], drop_first=True)
+
+# Split dataset
+X = f1.drop(columns='loan_status')
+y = le.fit_transform(f1['loan_status'])
 x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=2)
 
-# Model training and evaluation
-models = {
-    "Decision Tree": DecisionTreeClassifier(criterion='gini', random_state=100, max_depth=3, class_weight='balanced', min_samples_leaf=5),
-    "CatBoost": CatBoostClassifier(iterations=5, learning_rate=0.1, verbose=False),
-    "XGBoost": XGBClassifier(learning_rate=0.1, eval_metric='logloss'),
-    "LightGBM": LGBMClassifier(learning_rate=0.1)
-}
+# DecisionTree Classifier
+giniDecisionTree = DecisionTreeClassifier(criterion='gini', random_state=100, max_depth=3, class_weight='balanced', min_samples_leaf=5)
+giniDecisionTree.fit(x_train, y_train)
+giniPred = giniDecisionTree.predict(x_test)
+print('Decision Tree Accuracy:', accuracy_score(y_test, giniPred))
 
-for name, model in models.items():
-    model.fit(x_train, y_train)
-    y_pred = model.predict(x_test)
-    print(f"{name} Accuracy: {accuracy_score(y_test, y_pred)}")
-    print(f"Classification Report for {name}:\n{classification_report(y_test, y_pred)}")
+# CatBoost Classifier
+CatBoost_clf = CatBoostClassifier(iterations=5, learning_rate=0.1)
+CatBoost_clf.fit(x_train, y_train, eval_set=(x_test, y_test), verbose=False)
+cbr_prediction = CatBoost_clf.predict(x_test)
+print('CatBoost Accuracy:', accuracy_score(y_test, cbr_prediction))
+print('Classification Report for CatBoost:\n', classification_report(y_test, cbr_prediction))
+
+# XGBoost Classifier
+XGB_clf = XGBClassifier(learning_rate=0.1)
+XGB_clf.fit(x_train, y_train, eval_set=[(x_train, y_train), (x_test, y_test)], verbose=False)
+XGB_prediction = XGB_clf.predict(x_test)
+print('XGBoost Accuracy:', accuracy_score(y_test, XGB_prediction))
+print('Classification Report for XGBoost:\n', classification_report(y_test, XGB_prediction))
+
+# LightGBM Classifier
+LGBM_clf = LGBMClassifier(learning_rate=0.1)
+LGBM_clf.fit(x_train, y_train, eval_set=[(x_train, y_train), (x_test, y_test)], callbacks=[log_evaluation(period=1)])
+LGBM_prediction = LGBM_clf.predict(x_test)
+print('LightGBM Accuracy:', accuracy_score(y_test, LGBM_prediction))
+print('Classification Report for LightGBM:\n', classification_report(y_test, LGBM_prediction))
+
 
