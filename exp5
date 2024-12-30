@@ -1,116 +1,107 @@
 import numpy as np
 import pandas as pd
-import seaborn as sns
-sns.set_style('whitegrid')
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.tree import DecisionTreeClassifier
-from catboost import CatBoostClassifier
-from xgboost import XGBClassifier
-from lightgbm import LGBMClassifier, log_evaluation
+import seaborn as sns
+from sklearn.svm import SVR
+from sklearn.linear_model import Ridge, Lasso
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold, cross_val_score
+from sklearn import metrics
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingRegressor, RandomForestRegressor, StackingRegressor
 import warnings
-
-# Suppress warnings
 warnings.filterwarnings('ignore')
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.datasets import fetch_california_housing
+import graphviz
+import xgboost as xgb
+from xgboost import XGBRegressor
 
-# Load dataset
-data = pd.read_csv("/content/LoanStats3a.csv")
-print(data.shape)
+# Load the California housing dataset
+housing = fetch_california_housing()
+X = housing.data
+y = housing.target
 
-pd.set_option('display.max_columns', None)
-print(data.head(5))
-print(data.shape)
-print(data.info())
+# Load and inspect the liver disease dataset
+df = pd.read_csv('/content/indian_liver_patient.csv')
+print(df.head())
+print(df.isnull().sum())
 
-# Missing values heatmap
-plt.figure(figsize=(16, 14))
-sns.heatmap(data.isnull(), cbar=False)
-plt.title('Null values heatmap', fontdict={'fontsize': 20})
+# Drop missing values
+df1 = df.dropna()
+print(df1.isnull().any())
+
+# Visualize correlation matrix
+fig, ax = plt.subplots(figsize=(7,7))
+numerical_df = df1.select_dtypes(include=['number'])
+sns.heatmap(abs(numerical_df.corr()), annot=True, square=True, cbar=False, ax=ax, linewidths=0.25)
+
+# Drop correlated features
+df2 = df1.drop(columns=['Direct_Bilirubin', 'Alamine_Aminotransferase', 'Total_Protiens'])
+
+# Correct column name if needed
+df2 = df2.drop(columns=['Direct_Bilirubin', 'Alamine_Aminotransferase', 'Total_Protiens'])
+
+# Replace values in the 'Dataset' column
+df2['Dataset'] = df2['Dataset'].replace(1, 0)
+df2['Dataset'] = df2['Dataset'].replace(2, 1)
+
+# Group by gender to analyze the data
+print('How many people have the disease:', '\n', df2.groupby('Gender')[['Dataset']].sum(), '\n')
+print('How many people participated in the study:', '\n', df2.groupby('Gender')[['Dataset']].count())
+print('Percentage of people with the disease depending on gender:')
+print(df2.groupby('Gender')[['Dataset']].sum() / df2.groupby('Gender')[['Dataset']].count())
+
+# Defining features and target variable
+X = df2[['Gender', 'Total_Bilirubin', 'Alkaline_Phosphotase', 'Aspartate_Aminotransferase', 'Albumin', 'Albumin_and_Globulin_Ratio']]
+y = pd.Series(df2['Dataset'])
+
+# Encode categorical features
+labelencoder = LabelEncoder()
+X['Gender'] = labelencoder.fit_transform(X['Gender'])
+
+# Split dataset into training and test sets
+x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Standardize the features
+scaler = StandardScaler()
+X_train = scaler.fit_transform(x_train)
+X_test = scaler.transform(x_test)
+
+# AdaBoost Classifier model
+ADB = AdaBoostClassifier(DecisionTreeClassifier(max_depth=2), n_estimators=125, learning_rate=0.6, random_state=42)
+ADB.fit(X_train, y_train)
+
+# Cross-validation
+cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+n_scores = cross_val_score(ADB, X, y, scoring='accuracy', cv=cv, n_jobs=-1, error_score='raise')
+print('Accuracy: %.3f' % (np.mean(n_scores) * 100))
+
+# Confusion matrix and heatmap
+labels = ADB.predict(X_test)
+matrix = metrics.confusion_matrix(y_test, labels)
+sns.heatmap(matrix.T, square=True, annot=True, fmt='d', cbar=False)
+plt.xlabel('True Label')
+plt.ylabel('Predicted Label')
+
+# ROC Curve
+logit_roc_auc = metrics.roc_auc_score(y_test, labels)
+fpr, tpr, thresholds = metrics.roc_curve(y_test, ADB.predict_proba(X_test)[:, 1])
+plt.figure()
+plt.plot(fpr, tpr, label='(area = %0.2f)' % logit_roc_auc)
+plt.plot([0, 1], [0, 1], 'r--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.legend(loc="lower right")
+plt.savefig('Log_ROC')
 plt.show()
 
-# Handling missing values (Dropping columns with >40% missing values)
-f1 = data[data.columns[((data.isnull().sum()) / len(data)) < 0.4]]
+# XGBoost Regressor Model
+xgb_reg = XGBRegressor(objective='reg:linear', colsample_bytree=0.3, learning_rate=0.1, max_depth=5, alpha=10, n_estimators=10)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
+xgb_reg.fit(X_train, y_train)
+y_pred = xgb_reg.predict(X_test)
+mse = metrics.mean_squared_error(y_test, y_pred)
+print("MSE: %f" % (mse))
 
-# Drop constant columns
-const_cols = [col for col in f1.columns if f1[col].nunique() == 1]
-f1.drop(columns=const_cols, inplace=True)
-
-# Convert specific columns to datetime
-dt_cols = ['issue_d', 'earliest_cr_line', 'last_pymnt_d', 'last_credit_pull_d']
-for col in dt_cols:
-    f1[col] = pd.to_datetime(f1[col], format='%b-%y')
-
-# Extract year and month features from datetime columns
-f1['earliest_cr_line'] = 2019 - f1['earliest_cr_line'].dt.year
-f1['issue_d_year'] = 2019 - f1['issue_d'].dt.year
-f1['issue_d_month'] = f1['issue_d'].dt.month
-f1['last_pymnt_d_year'] = 2019 - f1['last_pymnt_d'].dt.year
-f1['last_pymnt_d_month'] = f1['last_pymnt_d'].dt.month
-f1['last_credit_pull_d_year'] = 2019 - f1['last_credit_pull_d'].dt.year
-f1['last_credit_pull_d_month'] = f1['last_credit_pull_d'].dt.month
-
-# Drop original datetime columns
-f1.drop(columns=['issue_d', 'last_pymnt_d', 'last_credit_pull_d'], inplace=True)
-
-# Handle missing values in numerical columns
-f1['last_pymnt_d_year'].fillna(f1['last_pymnt_d_year'].median(), inplace=True)
-f1['last_pymnt_d_month'].fillna(f1['last_pymnt_d_month'].median(), inplace=True)
-f1['last_credit_pull_d_year'].fillna(f1['last_credit_pull_d_year'].median(), inplace=True)
-f1['last_credit_pull_d_month'].fillna(f1['last_credit_pull_d_month'].median(), inplace=True)
-f1['tax_liens'].fillna(f1['tax_liens'].median(), inplace=True)
-
-# Handle 'revol_util' column
-f1['revol_util'].fillna('50%', inplace=True)
-f1['revol_util'] = f1['revol_util'].str.rstrip('%').astype('float')
-
-# Handle 'emp_length' column
-f1['emp_length'].fillna('5000', inplace=True)
-f1['emp_length'].replace({'10+ years': '10', '< 1 year': '0'}, inplace=True)
-f1['emp_length'] = f1['emp_length'].str.extract('(\d+)').astype('float')
-
-# Drop unwanted columns
-f1.drop(columns=['desc', 'emp_title', 'title'], inplace=True)
-
-# Label encoding for categorical columns
-le = LabelEncoder()
-f1['grade'] = le.fit_transform(f1['grade'])
-f1['sub_grade'] = le.fit_transform(f1['sub_grade'])
-
-# One-hot encoding for specific columns
-f1 = pd.get_dummies(f1, columns=['home_ownership', 'verification_status', 'purpose', 'addr_state', 'debt_settlement_flag'], drop_first=True)
-
-# Split dataset
-X = f1.drop(columns='loan_status')
-y = le.fit_transform(f1['loan_status'])
-x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=2)
-
-# DecisionTree Classifier
-giniDecisionTree = DecisionTreeClassifier(criterion='gini', random_state=100, max_depth=3, class_weight='balanced', min_samples_leaf=5)
-giniDecisionTree.fit(x_train, y_train)
-giniPred = giniDecisionTree.predict(x_test)
-print('Decision Tree Accuracy:', accuracy_score(y_test, giniPred))
-
-# CatBoost Classifier
-CatBoost_clf = CatBoostClassifier(iterations=5, learning_rate=0.1)
-CatBoost_clf.fit(x_train, y_train, eval_set=(x_test, y_test), verbose=False)
-cbr_prediction = CatBoost_clf.predict(x_test)
-print('CatBoost Accuracy:', accuracy_score(y_test, cbr_prediction))
-print('Classification Report for CatBoost:\n', classification_report(y_test, cbr_prediction))
-
-# XGBoost Classifier
-XGB_clf = XGBClassifier(learning_rate=0.1)
-XGB_clf.fit(x_train, y_train, eval_set=[(x_train, y_train), (x_test, y_test)], verbose=False)
-XGB_prediction = XGB_clf.predict(x_test)
-print('XGBoost Accuracy:', accuracy_score(y_test, XGB_prediction))
-print('Classification Report for XGBoost:\n', classification_report(y_test, XGB_prediction))
-
-# LightGBM Classifier
-LGBM_clf = LGBMClassifier(learning_rate=0.1)
-LGBM_clf.fit(x_train, y_train, eval_set=[(x_train, y_train), (x_test, y_test)], callbacks=[log_evaluation(period=1)])
-LGBM_prediction = LGBM_clf.predict(x_test)
-print('LightGBM Accuracy:', accuracy_score(y_test, LGBM_prediction))
-print('Classification Report for LightGBM:\n', classification_report(y_test, LGBM_prediction))
 
 
