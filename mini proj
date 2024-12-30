@@ -1,0 +1,148 @@
+# Loading the Required Packages
+import pandas as pd
+import numpy as np
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
+from sklearn.metrics import r2_score
+
+# Read the dataset
+bike_data = pd.read_csv('/content/hour.csv')
+bike_data.head()
+
+# Visualization: Distribution of 'hr'
+plt.figure(figsize=(10, 6))
+sns.histplot(bike_data['hr'], bins=24, kde=False)
+plt.title('Distribution of Bike Sharing by Hour')
+plt.xlabel('Hour of the Day')
+plt.ylabel('Count')
+plt.xticks(range(24))
+plt.show()
+
+# Visualization: Distribution of 'cnt'
+plt.figure(figsize=(10, 6))
+sns.histplot(bike_data['cnt'], kde=True)
+plt.title('Distribution of Bike Sharing Count')
+plt.xlabel('Total Bike Rentals (cnt)')
+plt.ylabel('Frequency')
+plt.show()
+
+# Visualization: Distribution of 'casual' and 'registered'
+plt.figure(figsize=(10, 6))
+sns.histplot(bike_data['casual'], kde=True)
+plt.title('Distribution of Casual Bike Rentals')
+plt.xlabel('Number of Casual Rentals (casual)')
+plt.ylabel('Frequency')
+plt.show()
+
+plt.figure(figsize=(10, 6))
+sns.histplot(bike_data['registered'], kde=True)
+plt.title('Distribution of Registered Bike Rentals')
+plt.xlabel('Number of Registered Rentals (registered)')
+plt.ylabel('Frequency')
+plt.show()
+
+# Filter data for 2011 and 2012, create stacked bar charts
+bike_data_2011 = bike_data[pd.to_datetime(bike_data['dteday']).dt.year == 2011]
+monthly_counts = bike_data_2011.groupby(pd.to_datetime(bike_data_2011['dteday']).dt.month)[['casual', 'registered']].sum()
+monthly_counts.plot(kind='bar', stacked=True, figsize=(10, 6))
+plt.title('Monthly Bike Rentals in 2011 (Casual vs. Registered)')
+plt.xlabel('Month')
+plt.ylabel('Total Rentals')
+plt.xticks(range(12), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+plt.legend(loc='upper left')
+plt.show()
+
+bike_data_2012 = bike_data[pd.to_datetime(bike_data['dteday']).dt.year == 2012]
+monthly_counts_2012 = bike_data_2012.groupby(pd.to_datetime(bike_data_2012['dteday']).dt.month)[['casual', 'registered']].sum()
+monthly_counts_2012.plot(kind='bar', stacked=True, figsize=(10, 6))
+plt.title('Monthly Bike Rentals in 2012 (Casual vs. Registered)')
+plt.xlabel('Month')
+plt.ylabel('Total Rentals')
+plt.xticks(range(12), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+plt.legend(loc='upper left')
+plt.show()
+
+# Correlation Matrix
+correlation_matrix = bike_data.select_dtypes(include=np.number).corr()
+plt.figure(figsize=(12, 10))
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm')
+plt.title('Correlation Matrix of Bike Sharing Features')
+plt.show()
+
+# Box Plots
+plt.figure(figsize=(10, 6))
+sns.boxplot(data=bike_data[['casual', 'registered']])
+plt.title('Box Plots of Casual and Registered Rentals')
+plt.ylabel('Number of Rentals')
+plt.show()
+
+# Data Cleaning and Preprocessing
+bike_data = bike_data.drop(['instant', 'dteday', 'casual', 'registered'], axis=1)
+categorical_vars = ['season', 'yr', 'mnth', 'hr', 'holiday', 'weekday', 'workingday', 'weathersit']
+continuous_vars = ['temp', 'atemp', 'hum', 'windspeed', 'cnt']
+
+scaler = MinMaxScaler()
+bike_data[continuous_vars[:-1]] = scaler.fit_transform(bike_data[continuous_vars[:-1]])
+
+encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+encoded_data = encoder.fit_transform(bike_data[categorical_vars])
+encoded_feature_names = encoder.get_feature_names_out(categorical_vars)
+encoded_df = pd.DataFrame(encoded_data, columns=encoded_feature_names, index=bike_data.index)
+bike_data = pd.concat([bike_data, encoded_df], axis=1)
+bike_data = bike_data.drop(categorical_vars, axis=1)
+
+# Split data into training and testing sets
+features = bike_data.drop('cnt', axis=1)
+target = bike_data['cnt']
+X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
+
+# Regression Models: Linear, SGD, Lasso, Ridge, and ElasticNet
+from sklearn.linear_model import LinearRegression, SGDRegressor, Lasso, Ridge, ElasticNet
+alpha_values = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100]
+
+# Linear Regression
+linear_regressor = LinearRegression()
+linear_regressor.fit(X_train, y_train)
+y_pred = linear_regressor.predict(X_test)
+print("Linear Regression MSE:", mean_squared_error(y_test, y_pred))
+print("Linear Regression R2:", r2_score(y_test, y_pred))
+
+# Stochastic Gradient Descent (SGD)
+sgd_regressor = SGDRegressor(max_iter=1000, tol=1e-3, random_state=42)
+sgd_regressor.fit(X_train, y_train)
+y_pred = sgd_regressor.predict(X_test)
+print("SGD MSE:", mean_squared_error(y_test, y_pred))
+
+# Lasso Regression
+best_alpha, best_mse = None, float('inf')
+for alpha in alpha_values:
+    lasso_model = Lasso(alpha=alpha, random_state=42)
+    lasso_model.fit(X_train, y_train)
+    mse = mean_squared_error(y_test, lasso_model.predict(X_test))
+    if mse < best_mse:
+        best_mse, best_alpha = mse, alpha
+print("Best Lasso Alpha:", best_alpha, "MSE:", best_mse)
+
+# Ridge Regression
+best_alpha, best_mse = None, float('inf')
+for alpha in alpha_values:
+    ridge_model = Ridge(alpha=alpha, random_state=42)
+    ridge_model.fit(X_train, y_train)
+    mse = mean_squared_error(y_test, ridge_model.predict(X_test))
+    if mse < best_mse:
+        best_mse, best_alpha = mse, alpha
+print("Best Ridge Alpha:", best_alpha, "MSE:", best_mse)
+
+# ElasticNet Regression
+best_alpha, best_mse = None, float('inf')
+for alpha in alpha_values:
+    elasticnet_model = ElasticNet(alpha=alpha, random_state=42)
+    elasticnet_model.fit(X_train, y_train)
+    mse = mean_squared_error(y_test, elasticnet_model.predict(X_test))
+    if mse < best_mse:
+        best_mse, best_alpha = mse, alpha
+print("Best ElasticNet Alpha:", best_alpha, "MSE:", best_mse)
