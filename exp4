@@ -1,0 +1,141 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Import support vector regressor algorithm
+from sklearn.svm import SVR
+from sklearn.linear_model import Ridge, Lasso
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+
+# Import modelling methods
+from sklearn.model_selection import train_test_split, RepeatedStratifiedKFold, cross_val_score
+
+# Import the model performance evaluation metrics
+from sklearn import metrics
+
+# Import Adaboost, Gradient Boost, Random Forest and Stacking algorithm
+from sklearn.ensemble import AdaBoostClassifier, GradientBoostingRegressor, RandomForestRegressor, StackingRegressor
+
+import warnings
+warnings.filterwarnings('ignore')
+
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+
+# Instead of load_boston, use fetch_california_housing:
+from sklearn.datasets import fetch_california_housing  # to import california housing dataset
+
+# to visualize decision boundaries
+import graphviz
+import xgboost as xgb
+from xgboost import XGBRegressor
+
+# Load the California housing dataset
+housing = fetch_california_housing()
+
+# Access the data and target variables
+X = housing.data
+y = housing.target
+
+df = pd.read_csv('/content/indian_liver_patient.csv')
+df.head()
+df.isnull().sum()
+
+# Drop missing values
+df1 = df.dropna()
+df1.isnull().any()
+
+# Visualize correlation matrix
+fig, ax = plt.subplots(figsize=(7, 7))
+numerical_df = df1.select_dtypes(include=['number'])
+sns.heatmap(abs(numerical_df.corr()), annot=True, square=True, cbar=False, ax=ax, linewidths=0.25)
+
+# Drop correlated features
+df2 = df1.drop(columns=['Direct_Bilirubin', 'Alamine_Aminotransferase', 'Total_Protiens'])
+
+# Encoding categorical values
+df2['Dataset'] = df2['Dataset'].replace(1, 0)
+df2['Dataset'] = df2['Dataset'].replace(2, 1)
+
+# Summary of disease distribution
+print('How many people have disease:', '\n', df2.groupby('Gender')[['Dataset']].sum(), '\n')
+print('How many people participated in the study:', '\n', df2.groupby('Gender')[['Dataset']].count())
+print('Percentage of people with the disease depending on gender:')
+df2.groupby('Gender')[['Dataset']].sum() / df2.groupby('Gender')[['Dataset']].count()
+
+# Define X and y variables
+X = df2[['Gender', 'Total_Bilirubin', 'Alkaline_Phosphotase', 'Aspartate_Aminotransferase', 'Albumin', 'Albumin_and_Globulin_Ratio']]
+y = pd.Series(df2['Dataset'])
+
+# Label Encoding and Scaling
+labelencoder = LabelEncoder()
+X['Gender'] = labelencoder.fit_transform(X['Gender'])
+x_train, x_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(x_train)
+X_test = scaler.transform(x_test)
+
+# AdaBoost Classifier
+ADB = AdaBoostClassifier(DecisionTreeClassifier(max_depth=2), n_estimators=125, learning_rate=0.6, random_state=42)
+ADB.fit(X_train, y_train)
+
+cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+n_scores = cross_val_score(ADB, X, y, scoring='accuracy', cv=cv, n_jobs=-1, error_score='raise')
+print('Accuracy: %.3f' % (np.mean(n_scores) * 100))
+
+labels = ADB.predict(X_test)
+matrix = metrics.confusion_matrix(y_test, labels)
+
+# Confusion Matrix Heatmap
+sns.heatmap(matrix.T, square=True, annot=True, fmt='d', cbar=False)
+plt.xlabel('true label')
+plt.ylabel('predicted label')
+
+# ROC Curve
+logit_roc_auc = metrics.roc_auc_score(y_test, labels)
+fpr, tpr, thresholds = metrics.roc_curve(y_test, ADB.predict_proba(X_test)[:, 1])
+plt.figure()
+plt.plot(fpr, tpr, label='(area = %0.2f)' % logit_roc_auc)
+plt.plot([0, 1], [0, 1], 'r--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.legend(loc="lower right")
+plt.savefig('Log_ROC')
+plt.show()
+
+# California Housing
+housing = fetch_california_housing()
+data = housing.data
+target = housing.target
+
+print(housing.keys())
+print("shape of dataset", data.shape)
+
+# Gradient Boosting Regressor
+gbr1 = GradientBoostingRegressor(alpha=0.9, criterion='friedman_mse', n_estimators=600, max_depth=5, learning_rate=0.01, min_samples_split=4)
+gbr = GradientBoostingRegressor()
+
+gbr.fit(x_train, y_train)
+ypred = gbr.predict(x_test)
+mse = metrics.mean_squared_error(y_test, ypred)
+print("MSE: %.2f" % mse)
+
+gbr1.fit(x_train, y_train)
+ypred1 = gbr1.predict(x_test)
+mse1 = metrics.mean_squared_error(y_test, ypred1)
+print("MSE: %.2f" % mse1)
+
+x_ax = range(len(y_test))
+plt.scatter(x_ax, y_test, s=5, color="blue", label="original")
+plt.plot(x_ax, ypred, lw=0.8, color="red", label="predicted")
+plt.legend()
+plt.show()
+
+# XGBoost Regressor
+xgb_reg = xgb.XGBRegressor(objective='reg:linear', colsample_bytree=0.3, learning_rate=0.1, max_depth=5, alpha=10, n_estimators=10)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=123)
+xgb_reg.fit(X_train, y_train)
+y_pred = xgb_reg.predict(X_test)
+mse2 = metrics.mean_squared_error(y_test, y_pred)
+print("MSE: %f" % mse2)
